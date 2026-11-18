@@ -1,0 +1,77 @@
+// ============================================================
+// Trend Zones
+// Author: George Larter — github.com/georgedevprojects
+// Shows trend direction with two moving averages, shades the
+// zone between them, labels confirmed trend changes and sends
+// alerts. Educational tool only — not financial advice.
+// ============================================================
+
+//@version=6
+// overlay = true draws on the price chart, not in a separate panel
+indicator("Trend Zones", overlay = true)
+
+// ---------- 1. SETTINGS ----------
+// Each input.* call adds a field to the indicator's Settings window
+maType     = input.string("EMA", "Average type", options = ["EMA", "SMA"], group = "Moving averages")
+fastLen    = input.int(20, "Fast length", minval = 1, group = "Moving averages")
+slowLen    = input.int(50, "Slow length", minval = 1, group = "Moving averages")
+useRsi     = input.bool(true, "Confirm labels with RSI", group = "RSI filter")
+rsiLen     = input.int(14, "RSI length", minval = 1, group = "RSI filter")
+showLabels = input.bool(true, "Show trend-change labels", group = "Display")
+showZones  = input.bool(true, "Shade trend zone", group = "Display")
+upColor    = input.color(color.teal, "Uptrend colour", group = "Display")
+downColor  = input.color(color.red, "Downtrend colour", group = "Display")
+
+// ---------- 2. CALCULATIONS ----------
+// Helper function: returns the average type chosen in the settings
+ma(len) => maType == "EMA" ? ta.ema(close, len) : ta.sma(close, len)
+
+fastMa = ma(fastLen)
+slowMa = ma(slowLen)
+rsi    = ta.rsi(close, rsiLen)
+
+// Uptrend = fast average above slow average
+isUptrend  = fastMa > slowMa
+// crossover/crossunder are true only on the bar where the lines cross
+trendUp    = ta.crossover(fastMa, slowMa)
+trendDown  = ta.crossunder(fastMa, slowMa)
+trendColor = isUptrend ? upColor : downColor
+
+// RSI filter: when on, an UP cross needs RSI > 50 and a DOWN cross needs RSI < 50.
+// When off, (not useRsi) is true so every cross counts.
+confirmedUp   = trendUp   and (not useRsi or rsi > 50)
+confirmedDown = trendDown and (not useRsi or rsi < 50)
+
+// Bars since the last confirmed (labelled) change — calculated on every bar so the count is correct
+barsSinceChange = ta.barssince(confirmedUp or confirmedDown)
+
+// ---------- 3. DRAWING ----------
+pFast = plot(fastMa, "Fast MA", color = trendColor, linewidth = 2)
+pSlow = plot(slowMa, "Slow MA", color = color.gray, linewidth = 1)
+// color.new(c, 80) = 80% transparent; na = draw nothing
+fill(pFast, pSlow, color = showZones ? color.new(trendColor, 80) : na, title = "Trend zone")
+
+plotshape(showLabels and confirmedUp, "Trend up", shape.labelup, location.belowbar, upColor, text = "UP", textcolor = color.white, size = size.small)
+plotshape(showLabels and confirmedDown, "Trend down", shape.labeldown, location.abovebar, downColor, text = "DOWN", textcolor = color.white, size = size.small)
+
+// ---------- 4. INFO PANEL ----------
+// "var" creates the table once instead of on every bar
+var table info = table.new(position.top_right, 2, 5, bgcolor = color.new(color.black, 20), border_width = 1)
+// Only fill the table on the latest bar
+if barstate.islast
+    gapPct = (fastMa - slowMa) / slowMa * 100
+    table.cell(info, 0, 0, "Trend", text_color = color.white)
+    table.cell(info, 1, 0, isUptrend ? "UP" : "DOWN", text_color = trendColor)
+    table.cell(info, 0, 1, "Gap", text_color = color.white)
+    table.cell(info, 1, 1, str.tostring(gapPct, "#.##") + "%", text_color = color.white)
+    table.cell(info, 0, 2, "RSI", text_color = color.white)
+    table.cell(info, 1, 2, str.tostring(rsi, "#.0"), text_color = color.white)
+    table.cell(info, 0, 3, "Bars since change", text_color = color.white)
+    table.cell(info, 1, 3, na(barsSinceChange) ? "–" : str.tostring(barsSinceChange), text_color = color.white)
+    table.cell(info, 0, 4, "Type", text_color = color.white)
+    table.cell(info, 1, 4, maType, text_color = color.white)
+
+// ---------- 5. ALERTS ----------
+// Available in TradingView's "Create alert" menu; {{ticker}} becomes the symbol
+alertcondition(confirmedUp, "Trend turned up", "{{ticker}}: trend turned up")
+alertcondition(confirmedDown, "Trend turned down", "{{ticker}}: trend turned down")
